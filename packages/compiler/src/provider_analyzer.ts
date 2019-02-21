@@ -12,6 +12,7 @@ import {CompileReflector} from './compile_reflector';
 import {Identifiers, createTokenForExternalReference} from './identifiers';
 import {ParseError, ParseSourceSpan} from './parse_util';
 import {AttrAst, DirectiveAst, ProviderAst, ProviderAstType, QueryMatch, ReferenceAst} from './template_parser/template_ast';
+import { LifecycleHooks } from '@angular/compiler/src/lifecycle_reflector';
 
 export class ProviderError extends ParseError {
   constructor(message: string, span: ParseSourceSpan) { super(span, message); }
@@ -471,25 +472,22 @@ function _resolveProvidersFromDirectives(
 }
 
 function _resolveProviders(
-    providers: CompileProviderMetadata[], providerType: ProviderAstType, eager: boolean,
-    sourceSpan: ParseSourceSpan, targetErrors: ParseError[],
-    targetProvidersByToken: Map<any, ProviderAst>, isModule: boolean) {
+  providers: CompileProviderMetadata[], providerType: ProviderAstType, eager: boolean,
+  sourceSpan: ParseSourceSpan, targetErrors: ParseError[],
+  targetProvidersByToken: Map<any, ProviderAst>, isModule: boolean) {
   providers.forEach((provider) => {
     let resolvedProvider = targetProvidersByToken.get(tokenReference(provider.token));
     if (resolvedProvider != null && !!resolvedProvider.multiProvider !== !!provider.multi) {
       targetErrors.push(new ProviderError(
-          `Mixing multi and non multi provider is not possible for token ${tokenName(resolvedProvider.token)}`,
-          sourceSpan));
+        `Mixing multi and non multi provider is not possible for token ${tokenName(resolvedProvider.token)}`,
+        sourceSpan));
     }
     if (!resolvedProvider) {
-      const lifecycleHooks = provider.token.identifier &&
-              (<CompileTypeMetadata>provider.token.identifier).lifecycleHooks ?
-          (<CompileTypeMetadata>provider.token.identifier).lifecycleHooks :
-          [];
+      const lifecycleHooks = _getLifecycleHooks(provider);
       const isUseValue = !(provider.useClass || provider.useExisting || provider.useFactory);
       resolvedProvider = new ProviderAst(
-          provider.token, !!provider.multi, eager || isUseValue, [provider], providerType,
-          lifecycleHooks, sourceSpan, isModule);
+        provider.token, !!provider.multi, eager || isUseValue, [provider], providerType,
+        lifecycleHooks, sourceSpan, isModule);
       targetProvidersByToken.set(tokenReference(provider.token), resolvedProvider);
     } else {
       if (!provider.multi) {
@@ -498,6 +496,26 @@ function _resolveProviders(
       resolvedProvider.providers.push(provider);
     }
   });
+}
+
+function _getLifecycleHooks(provider: CompileProviderMetadata): LifecycleHooks[] {
+  if (!provider.token.identifier) {
+    return []
+  }
+
+  if ((<CompileTypeMetadata>provider.token.identifier).lifecycleHooks) {
+    return (<CompileTypeMetadata>provider.token.identifier).lifecycleHooks;
+  }
+
+  if (!provider.useClass) {
+    return []
+  }
+
+  if (provider.useClass.lifecycleHooks) {
+    return provider.useClass.lifecycleHooks
+  }
+
+  return []
 }
 
 
